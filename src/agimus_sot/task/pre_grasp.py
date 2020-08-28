@@ -244,14 +244,14 @@ class PreGrasp (Task):
                 self.feature.oMja, self.feature.jaJja,
                 withMeasurementOfGripperPos)
         # Frame A is the gripper frame
-        self.feature.jaJja.value = np.zeros((6, sotrobot.dynamic.getDimension()))
+        # self.feature.jaJja.value = np.zeros((6, sotrobot.dynamic.getDimension()))
         self.feature.jaMfa.value = se3ToTuple(self.gripper.lMf)
 
         # Joint B is the other gripper link
         self._plugRobotLink (sotrobot, self.otherGripper.link,
                 self.feature.oMjb, self.feature.jbJjb,
                 withMeasurementOfOtherGripperPos)
-        self.feature.jbJjb.value = np.zeros((6, sotrobot.dynamic.getDimension()))
+        # self.feature.jbJjb.value = np.zeros((6, sotrobot.dynamic.getDimension()))
 
         # Frame B is the handle frame
         # jbMfb = ogMh = ogMo(t) * oMh
@@ -307,6 +307,38 @@ class PreGrasp (Task):
         elif method == 3:
             self.feature.jbMfb.value = se3ToTuple (self.otherGripper.lMf
                     * self.otherHandle.lMf.inverse() * self.handle.lMf)
+            self.addHppJointTopic (self.handle.fullLink)
+
+        elif method == 4:
+            self.jbMfb = matrixHomoProduct (name + "_jbMfb",
+                None,                    # ogMo -> TF
+                self.handle.lMf,         # oMh
+                )
+            plug(self.jbMfb.sout, self.feature.jbMfb)
+            self.g2Mobj_measured = matrixHomoProduct (name + "_g2Mobj_measured",
+                matrixHomoInverse(self.otherGripper.link + "_inverse",
+                                  sotrobot.dynamic.signal\
+                                  (self.otherGripper.link)),
+                sotrobot.dynamic.signal(sotrobot.camera_frame),
+                None,                    # cMobj -> TF
+                )
+            # This creates an If.
+            # The condition signal is whether the transform is available in TF.
+            # If not available, use the default value, otherwise, use the one
+            # computed from TF.
+            self._defaultValue, signals = \
+                    self.makeTfListenerDefaultValue(name+"_defaultValue",
+                            self.otherGripper.lMf * self.otherHandle.lMf.inverse(), # default value for g2Mobj
+                            outputs = self.jbMfb.sin0)
+            # g2Mobj_measured_sin will be read iif TF transform is available.
+            g2Mobj_measured_sin, condition_signal_in = signals
+            plug(self.g2Mobj_measured.sout, g2Mobj_measured_sin)
+            self.addTfListenerTopic (
+                    self.otherHandle.fullLink + self.meas_suffix + "_wrt_" + sotrobot.camera_frame,
+                    frame0 = self.otherHandle.fullLink + self.meas_suffix,
+                    frame1 = sotrobot.camera_frame,
+                    signalGetters = [ (self.g2Mobj_measured.sin2, condition_signal_in), ],
+                    )
             self.addHppJointTopic (self.handle.fullLink)
 
         # Compute desired pose between gripper and handle.
